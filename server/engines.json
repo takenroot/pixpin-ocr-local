@@ -1,0 +1,25 @@
+{
+  "chain": [
+    "deepl_oneshot",
+    "mymemory",
+    "local_opus"
+  ],
+  "cooldown_seconds": 300,
+  "max_consecutive_failures": 3,
+  "engines": {
+    "deepl_oneshot": {
+      "enabled": true
+    },
+    "mymemory": {
+      "enabled": true
+    },
+    "local_opus": {
+      "enabled": true,
+      "model_dir": "models",
+      "pairs": [
+        "en-zh",
+        "zh-en"
+      ]
+    }
+  }
+}

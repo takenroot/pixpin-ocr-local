@@ -1,0 +1,26 @@
+# ===== 构建产物 =====
+server/dist/
+server/build/
+server/bin/
+server/models/
+server/logs/
+server/test_image.png
+server/test_render.png
+
+# ===== 密钥（私钥绝不入库；用 tools/gen_certs.sh 重新生成）=====
+server/certs/*.key
+server/certs/*.srl
+server/certs/*.csr
+server/certs/san.cnf
+
+# ===== Python =====
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+
+# ===== 系统/编辑器 =====
+Thumbs.db
+.DS_Store
+.idea/
+.vscode/
