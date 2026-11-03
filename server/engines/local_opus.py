@@ -1,27 +1,33 @@
-"""本地 opus-mt 离线翻译引擎（CTranslate2 int8）。
+"""本地 opus-mt 离线翻译引擎（CTranslate2 int8，纯 sentencepiece，无 transformers）。
 
-两种模型目录布局:
-  - hf_tok/ 存在: transformers 转换的模型，用 MarianTokenizer 分词
-    （绕开 CT2 Windows 版 pybind 不接受 int token 的限制，片段经 vocab 映射回 id）
-  - 否则: ct2-opus-mt-converter 转换的原始 Marian 模型，直接用 sentencepiece
+分词约定（与 transformers MarianTokenizer 输出对齐）:
+  编码 = sentencepiece(source.spm) + ['</s>']
+  解码 = target.spm.decode_pieces 后 '▁'→空格
+（Marian 源序列必须带 eos，缺失会导致输出退化——第 1 版踩过坑，见 findings/packaging.md）
+
+模型目录: <model_dir>/ct2-opus-mt-<pair>/，内含 CT2 转换产物 + source.spm/target.spm
+（spm 放在 hf_tok/ 子目录亦可，两种布局都识别）。
+模型不随便携包分发，需要离线引擎时把 models/ 文件夹拷到 exe 同级目录。
 
 engines.json 配置:
-  "local_opus": {"enabled": false, "model_dir": "models", "pairs": ["en-zh", "zh-en"]}
+  "local_opus": {"enabled": true, "model_dir": "models", "pairs": ["en-zh", "zh-en"]}
 """
 from __future__ import annotations
 
-import json
 import os
 import sys
 
 import ctranslate2
+import sentencepiece as spm
 
 from . import EngineError
 
 if getattr(sys, "frozen", False):
-    _base_dir = sys._MEIPASS
+    _res_dir = sys._MEIPASS
+    _exe_dir = os.path.dirname(sys.executable)
 else:
-    _base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # server/
+    _res_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # server/
+    _exe_dir = _res_dir
 
 # pair -> (translator, encode_fn, decode_fn)
 _translators: dict = {}
@@ -46,54 +52,36 @@ def _resolve_pair(source: str, target: str, pairs: list[str]) -> str | None:
     return None
 
 
-def _load_hf_model(mdir: str):
-    from transformers import MarianTokenizer  # 延迟导入，未启用零开销
-
-    tok = MarianTokenizer.from_pretrained(os.path.join(mdir, "hf_tok"))
-    with open(os.path.join(mdir, "shared_vocabulary.json"), encoding="utf-8") as f:
-        vocab = json.load(f)
-    rev = {p: i for i, p in enumerate(vocab)}
-
-    def encode(text: str) -> list[str]:
-        ids = tok.encode(text)
-        tokens = tok.convert_ids_to_tokens(ids)
-        if not all(x in rev for x in tokens):
-            missing = [x for x in tokens if x not in rev][:3]
-            raise EngineError(f"tokenizer/vocab mismatch: {missing}")
-        return tokens
-
-    def decode(tokens: list[str]) -> str:
-        return tok.decode([rev[x] for x in tokens], skip_special_tokens=True)
-
-    return encode, decode
-
-
-def _load_spm_model(mdir: str):
-    import sentencepiece as spm
-
-    src_sp = spm.SentencePieceProcessor(model_file=os.path.join(mdir, "source.spm"))
-    tgt_sp = spm.SentencePieceProcessor(model_file=os.path.join(mdir, "target.spm"))
-
-    def encode(text: str) -> list[str]:
-        return src_sp.encode(text, out_type=str)
-
-    def decode(tokens: list[str]) -> str:
-        return tgt_sp.decode(tokens)
-
-    return encode, decode
+def _find_spm(mdir: str, name: str) -> str:
+    for cand in (os.path.join(mdir, "hf_tok", name), os.path.join(mdir, name)):
+        if os.path.isfile(cand):
+            return cand
+    raise EngineError(f"模型文件缺失: {mdir}/{name}")
 
 
 def _get(pair: str, model_dir: str):
     if pair in _translators:
         return _translators[pair]
-    mdir = os.path.join(_base_dir, model_dir, f"ct2-opus-mt-{pair}")
-    if not os.path.isdir(mdir):
-        raise EngineError(f"model not found: {mdir}（请在开发机转换后随包分发）")
-    translator = ctranslate2.Translator(mdir, device="cpu")
-    if os.path.isdir(os.path.join(mdir, "hf_tok")):
-        encode, decode = _load_hf_model(mdir)
+    # 优先 exe 旁（models/ 可后拷），其次包内资源目录
+    for base in {_exe_dir, _res_dir}:
+        mdir = os.path.join(base, model_dir, f"ct2-opus-mt-{pair}")
+        if os.path.isdir(mdir):
+            break
     else:
-        encode, decode = _load_spm_model(mdir)
+        raise EngineError(
+            f"model not found: {model_dir}/ct2-opus-mt-{pair} "
+            f"（离线引擎需将 models/ 文件夹拷到程序同级目录，或关闭 local_opus）"
+        )
+    translator = ctranslate2.Translator(mdir, device="cpu")
+    src_sp = spm.SentencePieceProcessor(model_file=_find_spm(mdir, "source.spm"))
+    tgt_sp = spm.SentencePieceProcessor(model_file=_find_spm(mdir, "target.spm"))
+
+    def encode(text: str) -> list[str]:
+        return src_sp.encode(text, out_type=str) + ["</s>"]
+
+    def decode(tokens: list[str]) -> str:
+        return tgt_sp.decode_pieces(tokens).replace("▁", " ").strip()
+
     _translators[pair] = (translator, encode, decode)
     return _translators[pair]
 

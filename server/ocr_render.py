@@ -9,7 +9,7 @@ import io
 import statistics
 from dataclasses import dataclass, field
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageOps
 
 from engines import translate
 
@@ -44,10 +44,32 @@ def _rect(points) -> tuple[int, int, int, int]:
     return min(xs), min(ys), max(xs) - min(xs), max(ys) - min(ys)
 
 
+def _ocr_prep(ocr, img_bytes: bytes):
+    """首检出空时重试：短条图（如贴图/聊天条）补边到 300px + 暗底反色后重跑 OCR。
+    只在右下补边，坐标系不变，检出的框可直接用于原图。"""
+    try:
+        img = Image.open(io.BytesIO(img_bytes)).convert("L")
+    except Exception:
+        return None
+    mean = sum(img.getdata()) / (img.width * img.height)
+    if mean < 128:
+        img = ImageOps.invert(img)
+    w, h = img.size
+    if h < 300 or w < 300:
+        canvas = Image.new("L", (max(w, 300), max(h, 300)), img.getpixel((0, 0)))
+        canvas.paste(img, (0, 0))
+        img = canvas
+    import numpy as np
+    result, _ = ocr(np.array(img))
+    return result
+
+
 def ocr_lines(img_bytes: bytes) -> tuple[Image.Image, list[Line], str]:
     """返回 (PIL图, 行列表, 检测到的源语言)。"""
     ocr = _get_ocr()
     result, _ = ocr(img_bytes)
+    if not result:
+        result = _ocr_prep(ocr, img_bytes)
     img = Image.open(io.BytesIO(img_bytes)).convert("RGB")
     lines: list[Line] = []
     cjk = latin = 0

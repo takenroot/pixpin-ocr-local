@@ -102,7 +102,9 @@ PixPin 的翻译功能对非会员开放了一条官方通道：**自配有道/�
 DeepL 升级 iOS 客户端后协议常量可能过期（表现：该引擎连续失败自动熔断，降级到后备引擎）。更新 `server/engines/deepl_web.py` 中的 `_IOS_APP_VERSION` 等常量后重新打包，或直接从 DeepLX 项目源码同步。
 
 **多台电脑使用？**
-整个文件夹拷贝过去跑一遍 install.bat 即可。证书和域名都是通用的。
+整个 `depixpin` 文件夹拷贝过去跑一遍 install.bat 即可（证书和域名都是通用的）。
+需要离线翻译兜底的话，把 `models/` 文件夹一并拷到 `depixpin.exe` 同级目录。
+项目根目录另备有 `depixpin-models.zip`（144MB，压缩好的模型包，解压即是 models/）。
 
 ## 项目结构
 
@@ -110,7 +112,9 @@ DeepL 升级 iOS 客户端后协议常量可能过期（表现：该引擎连续
 depixpin/
 ├── install.bat / uninstall.bat   # 一键安装/卸载
 ├── depixpin.exe                  # 服务本体（PyInstaller 打包，内嵌 Python）
-├── _internal/                    # 运行时（证书/配置/模型/日志）
+├── _internal/                    # 运行时（证书/配置/日志）
+├── models/                       # 可选：离线翻译模型（161MB，不随便携包）
+│                                  #   需要断网兜底时，把 models/ 拷到 depixpin.exe 同级目录
 ├── server/                       # 源码（开发用）
 │   ├── app.py                    #   伪有道 API 服务
 │   ├── engines/                  #   引擎链：deepl_web / mymemory / local_opus

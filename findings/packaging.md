@@ -45,17 +45,26 @@ vcruntime140_1.dll（系统库在所有 Win10/11 上都有）。注意只滤根�
 HF 格式的 opus-mt 模型必须用 MarianTokenizer，不能裸用 sentencepiece。
 （ct2-opus-mt-converter 转换的原始 Marian 发布版则两者兼容。）
 
+## 坑 6：collect_all 把 transformers 全家拖进包
+
+`collect_all("onnxruntime")` 会收集 `onnxruntime.transformers` 优化工具子包，
+其依赖 transformers（+45MB）；`collect_all("ctranslate2")` 同理（converters 子包）。
+这两个包都只需 `collect_dynamic_libs()` 收原生库 + 显式 hiddenimports 推理核心，
+最终包 686MB → 271MB（再去掉不随便携的 models 161MB）。
+
 ## 构建命令
 
 ```bash
-pip install pyinstaller
+pip install pyinstaller opencv-python-headless
 cd server
 python -m PyInstaller depixpin.spec --noconfirm
-# 产物在 dist/depixpin/，把 tools/install.bat、tools/uninstall.bat、README.md 拷入根目录
+# 产物在 dist/depixpin/（约 271MB），把 tools/install.bat、tools/uninstall.bat、README.md 拷入根目录
 ```
 
 验证清单：
 - [ ] exe 裸跑（HTTP 8443）`/api` + `/ocrtransapi` 均 200
 - [ ] exe --https（SYSTEM 任务）走 `https://openapi.youdao.com` 全链路 200
-- [ ] 根目录无 msvcp140.dll / vcruntime140*.dll
-- [ ] _internal 内含 certs/ engines.json/ models/
+- [ ] 根目录无 msvcp140.dll / vcruntime140*.dll / opencv_videoio_ffmpeg*.dll
+- [ ] _internal 无 transformers/ 目录
+- [ ] _internal 内含 certs/ engines.json/
+- [ ] 需要离线引擎时 models/ 放 exe 同级，local_opus 引擎链测试通过
