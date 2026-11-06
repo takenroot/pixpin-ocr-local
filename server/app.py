@@ -91,8 +91,8 @@ def image_translate():
         t0 = time.time()
         img, lines, detected = ocr_render.ocr_lines(img_bytes)
         src = detected if source == "auto" else source
-        ocr_render.translate_lines(lines, src, target)
         regions = ocr_render.group_regions(lines)
+        ocr_render.translate_regions(regions, src, target)
         log.info("[/ocrtransapi] OCR %d lines / %d regions in %.1fs", len(lines), len(regions), time.time() - t0)
     except Exception as e:  # noqa: BLE001
         log.exception("[/ocrtransapi] pipeline failed")

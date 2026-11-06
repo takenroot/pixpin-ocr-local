@@ -75,6 +75,14 @@ PixPin 的翻译功能（3.x 之前仅会员可用）开放了一条官方通道
 
 ## 配置（`engines.json`）
 
+冻结模式下优先读 **`depixpin.exe` 同目录**的 `engines.json`（没有则用包内默认），修改即时生效（按文件修改时间热加载），无需重启服务。引擎链按 `chain` 顺序执行，某引擎连失败 3 次自动熔断 5 分钟：
+
+| 引擎 | 说明 | 需要联网 |
+|---|---|---|
+| `local_opus` | opus-mt 本地模型（CTranslate2 int8），完全离线，0.5 秒/段 | ❌ |
+| `deepl_oneshot` | DeepL 免费接口（iOS 客户端协议移植），质量最佳 | ✅ |
+| `mymemory` | MyMemory 免费接口，质量一般 | ✅ |
+
 ```json
 {
   "chain": ["deepl_oneshot", "mymemory", "local_opus"],
@@ -88,9 +96,10 @@ PixPin 的翻译功能（3.x 之前仅会员可用）开放了一条官方通道
 }
 ```
 
-- 调整 `chain` 顺序即调整优先级；`enabled: false` 停用某引擎
+- 调整 `chain` 顺序即调整优先级：质量优先用默认（DeepL 打头）；速度/离线优先把 `local_opus` 放第一个
 - 新增语言对：开发机用 `ct2-opus-mt-converter` 转换模型放进 `models/ct2-opus-mt-<a>-<b>/`，在 `pairs` 里登记
-- 修改即时生效（按文件修改时间热加载），无需重启服务
+
+**关于 GPU**：本地翻译模型经实测可走 CUDA（你的 3060 Laptop 没问题），但 CTranslate2 的 Windows 版不自带 CUDA 运行库（cublas/cudnn 约 600MB），为省 0.4 秒不值得。模型保持 CPU 运行，0.5 秒/段已够快。
 
 ## FAQ
 

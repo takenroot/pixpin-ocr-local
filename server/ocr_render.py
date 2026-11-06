@@ -126,8 +126,40 @@ def group_regions(lines: list[Line]) -> list[Region]:
     return regions
 
 
+def translate_regions(regions: list[Region], source: str, target: str) -> None:
+    """按区域（段落）翻译：整段带行标发给引擎，保住跨行句子的上下文；
+    行标校验不过就回退逐行模式。直接写入 line.translation。"""
+    for region in regions:
+        lines = region.lines
+        s = source
+        if s == "auto":
+            all_text = " ".join(l.text for l in lines)
+            cjk = sum(1 for ch in all_text if "\u4e00" <= ch <= "\u9fff")
+            latin = sum(1 for ch in all_text if ch.isascii() and ch.isalpha())
+            s = "zh-CHS" if cjk > latin else "en"
+        if len(lines) > 1 and len(lines) <= len(_MARKERS):
+            numbered = "\n".join(f"{_MARKERS[i]}{l.text}" for i, l in enumerate(lines))
+            try:
+                out = translate(numbered, s, target)
+                parts = _MARKER_SPLIT.split(out)
+                # 行标都在且每行译文非空 -> 采用；parts[0] 是①之前的残留，应为空白
+                if len(parts) == len(lines) + 1 and not parts[0].strip() \
+                        and all(p.strip() for p in parts[1:]):
+                    for line, tr in zip(lines, parts[1:]):
+                        line.translation = tr.strip()
+                    continue
+            except Exception:  # noqa: BLE001 - 段落失败走逐行
+                pass
+        _translate_group(lines, s, target)
+
+
+_MARKERS = "①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳"
+import re as _re_mod
+_MARKER_SPLIT = _re_mod.compile("[" + _MARKERS + "]")
+
+
 def translate_lines(lines: list[Line], source: str, target: str) -> None:
-    # 先按行判定源语言分组（中英混排截图里逐行判语言比整图判更准）
+    # 兼容旧接口：先分组再逐组走批量/并行
     groups: dict[str, list[Line]] = {}
     for line in lines:
         s = source

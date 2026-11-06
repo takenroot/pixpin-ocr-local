@@ -37,6 +37,17 @@ _MYMEMORY_LANG = {
 }
 
 _CONFIG_PATH = os.path.join(_base, "engines.json")
+
+
+def _config_path() -> str:
+    """冻结模式下优先读 exe 同目录的 engines.json（用户可改，热加载）。"""
+    if getattr(sys, "frozen", False):
+        override = os.path.join(os.path.dirname(sys.executable), "engines.json")
+        if os.path.exists(override):
+            return override
+    return _CONFIG_PATH
+
+
 _config_cache: tuple[float, dict] = (0.0, {})
 # 熔断状态: name -> {"fails": int, "cooldown_until": float}
 _breaker: dict[str, dict] = {}
@@ -53,10 +64,11 @@ class EngineError(Exception):
 
 def _load_config() -> dict:
     global _config_cache
-    mtime = os.path.getmtime(_CONFIG_PATH) if os.path.exists(_CONFIG_PATH) else 0.0
+    path = _config_path()
+    mtime = os.path.getmtime(path) if os.path.exists(path) else 0.0
     if mtime != _config_cache[0]:
-        if os.path.exists(_CONFIG_PATH):
-            with open(_CONFIG_PATH, encoding="utf-8") as f:
+        if os.path.exists(path):
+            with open(path, encoding="utf-8") as f:
                 _config_cache = (mtime, json.load(f))
         else:
             _config_cache = (mtime, _default_config())
