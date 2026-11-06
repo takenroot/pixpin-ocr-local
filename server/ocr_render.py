@@ -127,20 +127,43 @@ def group_regions(lines: list[Line]) -> list[Region]:
 
 
 def translate_lines(lines: list[Line], source: str, target: str) -> None:
-    src = source if source != "auto" else None
-
-    def _work(line: Line) -> None:
-        s = src
-        if s is None:
+    # 先按行判定源语言分组（中英混排截图里逐行判语言比整图判更准）
+    groups: dict[str, list[Line]] = {}
+    for line in lines:
+        s = source
+        if s == "auto":
             cjk = sum(1 for ch in line.text if "\u4e00" <= ch <= "\u9fff")
             latin = sum(1 for ch in line.text if ch.isascii() and ch.isalpha())
             s = "zh-CHS" if cjk > latin else "en"
+        groups.setdefault(s, []).append(line)
+    for s, group in groups.items():
+        _translate_group(group, s, target)
+
+
+def _translate_group(lines: list[Line], source: str, target: str) -> None:
+    """优先把整组行合并成一次翻译请求（省掉每行的网络往返）；
+    行数对不上就回退逐行并行。"""
+    joined = "\n".join(l.text for l in lines)
+    if len(lines) > 1:
         try:
-            line.translation = translate(line.text, s, target)
+            out = translate(joined, source, target)
+            parts = out.split("\n")
+            if len(parts) == len(lines) and all(p.strip() for p in parts):
+                for line, tr in zip(lines, parts):
+                    line.translation = tr.strip()
+                return
+        except Exception:  # noqa: BLE001 - 批量失败走逐行
+            pass
+    _translate_parallel(lines, source, target)
+
+
+def _translate_parallel(lines: list[Line], source: str, target: str) -> None:
+    def _work(line: Line) -> None:
+        try:
+            line.translation = translate(line.text, source, target)
         except Exception as e:  # noqa: BLE001 - 单行失败不拖垮整体
             line.translation = f"[翻译失败: {e}]"
 
-    # 逐行翻译改为并行：纯网络等待，8 线程可把 N 行串行延迟降到约 1/8
     from concurrent.futures import ThreadPoolExecutor
     with ThreadPoolExecutor(max_workers=min(8, max(1, len(lines)))) as pool:
         list(pool.map(_work, lines))
