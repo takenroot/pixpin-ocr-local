@@ -7,7 +7,7 @@ from PyInstaller.utils.hooks import collect_all, collect_dynamic_libs
 block_cipher = None
 
 datas, binaries, hiddenimports = [], [], []
-for pkg in ("rapidocr_onnxruntime", "cv2",
+for pkg in ("rapidocr", "cv2",
             "curl_cffi", "sentencepiece", "engines"):
     d, b, h = collect_all(pkg)
     datas += d
@@ -47,7 +47,12 @@ a = Analysis(
     hooksconfig={},
     runtime_hooks=["pyinstaller_runtime_hook.py"],
     excludes=("torch", "torchvision", "torchaudio", "tensorflow", "jax",
-              "flax", "triton", "PyInstaller"),
+              "flax", "triton", "PyInstaller",
+              # rapidocr 的可选 GUI/可视化依赖（matplotlib 的 Qt 后端会拉入 PyQt/PySide，
+              # 既让 PyInstaller 隔离子进程在导入 sentencepiece 前加载 Qt5 而崩溃，又白增 150MB）
+              "matplotlib", "PyQt5", "PyQt5Designer", "PySide6", "PySide2",
+              "shiboken6", "shiboken2", "fontTools", "contourpy", "kiwisolver",
+              "cycler", "python-dateutil"),
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
     cipher=block_cipher,

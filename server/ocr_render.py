@@ -19,9 +19,17 @@ _OCR = None
 def _get_ocr():
     global _OCR
     if _OCR is None:
-        from rapidocr_onnxruntime import RapidOCR
+        from rapidocr import RapidOCR
         _OCR = RapidOCR()
     return _OCR
+
+
+def _run_ocr(ocr, img) -> list | None:
+    """跑一版 OCR，统一返回 [(box, text, conf), ...] 或 None。"""
+    out = ocr(img)
+    if not out.txts:
+        return None
+    return list(zip(out.boxes, out.txts, out.scores))
 
 
 @dataclass
@@ -60,14 +68,13 @@ def _ocr_prep(ocr, img_bytes: bytes):
         canvas.paste(img, (0, 0))
         img = canvas
     import numpy as np
-    result, _ = ocr(np.array(img))
-    return result
+    return _run_ocr(ocr, np.array(img))
 
 
 def ocr_lines(img_bytes: bytes) -> tuple[Image.Image, list[Line], str]:
     """返回 (PIL图, 行列表, 检测到的源语言)。"""
     ocr = _get_ocr()
-    result, _ = ocr(img_bytes)
+    result = _run_ocr(ocr, img_bytes)
     if not result:
         result = _ocr_prep(ocr, img_bytes)
     img = Image.open(io.BytesIO(img_bytes)).convert("RGB")
@@ -121,7 +128,8 @@ def group_regions(lines: list[Line]) -> list[Region]:
 
 def translate_lines(lines: list[Line], source: str, target: str) -> None:
     src = source if source != "auto" else None
-    for line in lines:
+
+    def _work(line: Line) -> None:
         s = src
         if s is None:
             cjk = sum(1 for ch in line.text if "\u4e00" <= ch <= "\u9fff")
@@ -131,6 +139,11 @@ def translate_lines(lines: list[Line], source: str, target: str) -> None:
             line.translation = translate(line.text, s, target)
         except Exception as e:  # noqa: BLE001 - 单行失败不拖垮整体
             line.translation = f"[翻译失败: {e}]"
+
+    # 逐行翻译改为并行：纯网络等待，8 线程可把 N 行串行延迟降到约 1/8
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=min(8, max(1, len(lines)))) as pool:
+        list(pool.map(_work, lines))
 
 
 _FONT_PATHS = [

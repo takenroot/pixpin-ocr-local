@@ -68,3 +68,18 @@ python -m PyInstaller depixpin.spec --noconfirm
 - [ ] _internal 无 transformers/ 目录
 - [ ] _internal 内含 certs/ engines.json/
 - [ ] 需要离线引擎时 models/ 放 exe 同级，local_opus 引擎链测试通过
+
+## 2026-11-06：rapidocr 换新版（PP-OCRv6）打包的两个坑
+
+1. **PyInstaller 隔离子进程崩溃**（`SubprocessDiedError: ... importing package 'sentencepiece'`）：
+   新版 `rapidocr` 的可选依赖会把 matplotlib 及其 Qt 后端（PyQt5/PySide6/shiboken6）
+   拉进依赖图。PyInstaller 在 Windows 上会起隔离子进程逐个 import 所有包以收集
+   DLL 搜索路径，Qt 绑定被排到最前加载，随后 import sentencepiece 时子进程硬崩。
+   解决：spec 的 excludes 里加 `matplotlib/PyQt5/PySide6/shiboken6/fontTools/contourpy/
+   kiwisolver/cycler/python-dateutil`（运行时用不到，rapidocr 的可视化功能不调用）。
+2. **打包期间服务没杀干净会 PermissionError**：COLLECT 要先删 dist/depixpin，
+   服务进程占着 logs/server.log 就失败。重打包前必须 `taskkill //F //IM depixpin.exe`。
+
+另注：`rapidocr`（新一代）与 `rapidocr_onnxruntime`（旧）是两个包，前者自带
+PP-OCRv6 small 模型（det 9.5MB + rec 21MB，打进 _internal/rapidocr/models/），
+无需运行时联网下载。
