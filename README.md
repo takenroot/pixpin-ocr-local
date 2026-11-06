@@ -107,7 +107,7 @@ PixPin 的翻译功能（3.x 之前仅会员可用）开放了一条官方通道
 `local_opus` 首次调用需加载模型（几秒）；RapidOCR 首次运行初始化推理引擎。之后正常。
 
 **识别或翻译整体慢？**
-OCR 本身约 2 秒（PP-OCRv6，CPU）；耗时大头通常是逐行翻译的联网等待，已做 8 线程并行。仍慢时看 `logs\server.log` 里 `[breaker]` 记录——可能有引擎被熔断降级。
+OCR 本身约 2 秒（PP-OCRv6，CPU）；耗时大头通常是逐行翻译的联网等待，已做批量请求 + 8 线程并行 + 结果缓存（翻过的内容秒回，缓存在 `cache\translate.db`）。仍慢时看 `logs\server.log` 里 `[breaker]` 记录——可能有引擎被熔断降级。
 
 **DeepL 引擎失效？**
 DeepL 升级 iOS 客户端后协议常量可能过期（表现：该引擎连续失败自动熔断，降级到后备引擎）。更新 `server/engines/deepl_web.py` 中的 `_IOS_APP_VERSION` 等常量后重新打包，或直接从 DeepLX 项目源码同步。

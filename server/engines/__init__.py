@@ -13,10 +13,12 @@
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
 import sys
+import threading
 import time
 
 import requests
@@ -136,7 +138,40 @@ def _record_success(name: str) -> None:
         del _breaker[name]
 
 
+# ---- 翻译结果持久缓存（sqlite）----
+# 键 = source|target|text 的哈希；任何引擎成功都写入，重复内容（同类界面/游戏文本）
+# 再次翻译时 0 毫秒返回，相当于"翻过的都走本地"。
+_cache_lock = threading.Lock()
+_cache_conn = None
+
+
+def _cache_db():
+    global _cache_conn
+    if _cache_conn is None:
+        import sqlite3
+        if getattr(sys, "frozen", False):
+            d = os.path.join(os.path.dirname(sys.executable), "cache")
+        else:
+            d = os.path.join(_base, "cache")
+        os.makedirs(d, exist_ok=True)
+        conn = sqlite3.connect(os.path.join(d, "translate.db"),
+                               check_same_thread=False)
+        conn.execute("CREATE TABLE IF NOT EXISTS t (k TEXT PRIMARY KEY, v TEXT)")
+        _cache_conn = conn
+    return _cache_conn
+
+
+def _cache_key(text: str, source: str, target: str) -> str:
+    return hashlib.sha1(f"{source}|{target}|{text}".encode("utf-8")).hexdigest()
+
+
 def translate(text: str, source: str = "auto", target: str = "zh-CHS") -> str:
+    key = _cache_key(text, source, target)
+    with _cache_lock:
+        row = _cache_db().execute("SELECT v FROM t WHERE k=?", (key,)).fetchone()
+    if row:
+        return row[0]
+
     cfg = _load_config()
     chain = [n for n in cfg.get("chain", []) if n in _REGISTRY]
     errors = []
@@ -151,6 +186,9 @@ def translate(text: str, source: str = "auto", target: str = "zh-CHS") -> str:
             result = _REGISTRY[name](text, source, target, **engine_cfg).strip()
             if result:
                 _record_success(name)
+                with _cache_lock:
+                    _cache_db().execute("INSERT OR REPLACE INTO t VALUES (?, ?)",
+                                        (key, result))
                 return result
             raise EngineError("empty result")
         except Exception as e:  # noqa: BLE001 - 引擎间降级
