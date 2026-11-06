@@ -186,6 +186,7 @@ def translate(text: str, source: str = "auto", target: str = "zh-CHS") -> str:
             result = _REGISTRY[name](text, source, target, **engine_cfg).strip()
             if result:
                 _record_success(name)
+                log.info("[translate] engine=%s chars=%d %s->%s", name, len(text), source, target)
                 with _cache_lock:
                     _cache_db().execute("INSERT OR REPLACE INTO t VALUES (?, ?)",
                                         (key, result))
